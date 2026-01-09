@@ -46,7 +46,7 @@ def add_data(sheet_name, new_data_dict):
 
 # --- 사이드바 메뉴 ---
 menu = st.sidebar.radio("메뉴 선택", 
-    ["1. 강사 등록", "2. 학생 등록", "3. 반 개설", "4. 수강 배정", "5. 출석 체크", "6. 데이터 통합 조회"]
+    ["1. 강사 등록", "2. 학생 등록", "3. 반 개설", "4. 수강 배정", "5. 출석 체크", "6. 데이터 통합 조회", "7. 시간표 보기"]
 )
 
 # 1. 강사 등록
@@ -134,3 +134,42 @@ elif menu == "6. 데이터 통합 조회":
     tabs[2].dataframe(load_data('classes'))
     tabs[3].dataframe(load_data('enrollments'))
     tabs[4].dataframe(load_data('attendance'))
+# ==========================================
+# 7. 시간표 보기 (New!)
+# ==========================================
+elif menu == "7. 시간표 보기":
+    st.subheader("📅 주간 수업 시간표")
+    st.info("💡 '반 개설' 메뉴에서 시간에 '월', '화' 같은 요일이 포함되어야 표에 나타납니다.")
+    
+    # 데이터 가져오기
+    df_classes = load_data('classes')
+    
+    if df_classes.empty:
+        st.warning("아직 개설된 반이 없습니다.")
+    else:
+        # 1. 월~토 6개 기둥 만들기
+        days = ["월", "화", "수", "목", "금", "토"]
+        cols = st.columns(len(days)) # 화면을 6등분 함
+        
+        # 2. 각 요일별로 수업 분류해서 보여주기
+        for i, day in enumerate(days):
+            with cols[i]:
+                # 요일 제목 꾸미기
+                st.markdown(f"<div style='text-align: center; font-weight: bold; background-color: #f0f2f6; padding: 5px; border-radius: 5px;'>{day}요일</div>", unsafe_allow_html=True)
+                st.write("") # 한 줄 띄우기
+                
+                # 데이터에서 해당 요일 글자가 들어간 수업만 찾기
+                # (예: '월수금 7시' 데이터는 '월', '수', '금' 칸에 모두 나타남)
+                # 에러 방지를 위해 문자열로 변환(astype) 후 검색
+                daily_schedule = df_classes[df_classes['시간'].astype(str).str.contains(day)]
+                
+                if not daily_schedule.empty:
+                    for _, row in daily_schedule.iterrows():
+                        # 카드 형태로 예쁘게 보여주기
+                        with st.container(border=True):
+                            st.markdown(f"**📘 {row['반이름']}**")
+                            st.caption(f"⏰ {row['시간']}")
+                            st.caption(f"쌤: {row['선생님']}")
+                else:
+                    # 수업 없으면 흐린 글씨로 표시
+                    st.caption("수업 없음")
