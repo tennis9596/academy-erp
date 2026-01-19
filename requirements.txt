@@ -2,6 +2,7 @@ streamlit
 pandas
 gspread
 oauth2client
+streamlit-option-menu
 qrcode
 opencv-python-headless
 Pillow
