@@ -21,15 +21,13 @@ st.set_page_config(page_title="형설지공 학원 ERP", page_icon="🏫", layou
 
 st.markdown("""
 <style>
-    /* 1. 인쇄 모드 설정 (Ctrl+P, 생활기록부용) */
+    /* 1. 인쇄 모드 설정 */
     @media print {
         [data-testid="stSidebar"], header, footer, .stButton, .no-print { display: none !important; }
         .block-container { padding: 0 !important; max-width: 100% !important; }
-        * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        .report-card { break-inside: avoid; }
     }
 
-    /* 2. 카드형 시간표 스타일 (강사/강의실 시간표용) */
+    /* 2. 카드형 시간표 스타일 */
     .class-card {
         background-color: #E3F2FD; border-left: 5px solid #1565C0; border-radius: 8px;
         padding: 8px; margin-bottom: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -54,35 +52,28 @@ st.markdown("""
 
     .day-header { text-align: center; font-weight: 800; background-color: #f1f3f5; padding: 10px 0; border-radius: 5px; margin-bottom: 10px; }
     
-    /* 3. 생활기록부 리포트용 스타일 */
-    .report-title { font-size: 2.2rem; font-weight: 900; color: #1565C0; text-align: center; margin-bottom: 10px; border-bottom: 3px solid #1565C0; padding-bottom: 10px; }
-    .report-section { font-size: 1.3rem; font-weight: 800; color: #333; margin-top: 25px; margin-bottom: 10px; border-left: 5px solid #1565C0; padding-left: 10px; }
-    .info-box { background-color: #f8f9fa; border: 1px solid #ddd; padding: 15px; border-radius: 8px; margin-bottom: 15px; }
-    .info-label { font-weight: bold; color: #555; }
-    .info-value { font-weight: bold; color: #000; font-size: 1.1rem; }
-    
-    /* 4. 달력 스타일 */
+    /* 3. 달력 스타일 */
     .cal-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .cal-th { background-color: #eee; padding: 5px; text-align: center; font-weight: bold; border: 1px solid #ddd; }
     .cal-td { height: 80px; vertical-align: top; border: 1px solid #ddd; padding: 5px; font-size: 0.9rem; position: relative; }
     .cal-day-num { font-weight: bold; margin-bottom: 3px; display: block; color: #333; }
     .cal-badge { display: block; padding: 4px; border-radius: 4px; font-size: 0.8rem; margin-bottom: 2px; color: white; text-align: center; font-weight: bold; }
     .bg-green { background-color: #4CAF50; } 
-    .bg-red { background-color: #F44336; }   
-    .bg-gray { background-color: #9E9E9E; }  
+    .bg-red { background-color: #F44336; }    
+    .bg-gray { background-color: #9E9E9E; }   
     .bg-blue { background-color: #2196F3; }
 
-    /* 5. 알림 메시지 */
+    /* 4. 알림 메시지 */
     .custom-alert { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background-color: rgba(46, 125, 50, 0.95); color: white; padding: 25px 50px; border-radius: 15px; font-size: 22px; font-weight: bold; z-index: 99999; animation: fadeInOut 2s forwards; border: 2px solid #fff; }
     @keyframes fadeInOut { 0% { opacity: 0; transform: translate(-50%, -40%); } 15% { opacity: 1; transform: translate(-50%, -50%); } 85% { opacity: 1; transform: translate(-50%, -50%); } 100% { opacity: 0; transform: translate(-50%, -60%); } }
     
-    /* 6. 요일 뱃지 (반 개설용) */
+    /* 5. 요일 뱃지 */
     .day-badge-single { padding: 8px 0; border-radius: 8px; color: #444; font-weight: 800; text-align: center; display: block; width: 100%; border: 1px solid rgba(0,0,0,0.05); font-size: 0.9rem; }
 </style>
 """, unsafe_allow_html=True)
 
 # ==========================================
-# [함수] 구글 시트 및 유틸리티 (이 부분만 수정)
+# [데이터베이스 엔진] 구글 시트 연동 핵심 함수 (수정됨)
 # ==========================================
 @st.cache_resource
 def init_connection():
@@ -99,14 +90,13 @@ def init_connection():
     return client
 
 def safe_api_call(func, *args, **kwargs):
-    # [수정] 429 에러(요청 과다) 방지를 위한 재시도 로직 강화
-    max_retries = 7
+    max_retries = 5
     for i in range(max_retries):
         try:
             return func(*args, **kwargs)
         except gspread.exceptions.APIError as e:
             if "429" in str(e): 
-                time.sleep((1.5 ** i) + 1) # 대기 시간을 점차 늘림 (2초, 3초, 5초...)
+                time.sleep((1.5 ** i) + 1)
                 continue
             else: raise e
         except Exception as e:
@@ -114,7 +104,6 @@ def safe_api_call(func, *args, **kwargs):
             continue
     return func(*args, **kwargs)
 
-# [수정] ttl=3 적용 (3초간 캐시 유지 -> 연속 클릭 시 API 호출 방지)
 @st.cache_data(ttl=3)
 def load_data(sheet_name):
     try:
@@ -131,6 +120,137 @@ def show_center_message(message, icon="✅"):
     placeholder.markdown(f'<div class="custom-alert"><span>{icon}</span> {message}</div>', unsafe_allow_html=True)
     time.sleep(1.2); placeholder.empty()
 
+# --- [핵심 수정] 데이터 입력/수정/삭제 로직 강화 ---
+# 이제 헤더(1행)를 읽어서 정확한 위치에 데이터를 꽂아넣습니다.
+
+def add_data(sheet_name, data_dict):
+    """
+    데이터 추가 함수: 시트의 헤더를 읽어 순서에 맞게 데이터를 정렬하여 추가함
+    """
+    try:
+        client = init_connection()
+        ws = safe_api_call(client.open("Academy_DB").worksheet, sheet_name)
+        
+        # 1. 시트의 헤더(1행) 가져오기
+        headers = safe_api_call(ws.row_values, 1)
+        
+        # 2. 데이터가 하나도 없는 빈 시트라면, 딕셔너리 키를 헤더로 씁니다.
+        if not headers:
+            safe_api_call(ws.append_row, list(data_dict.keys()))
+            headers = list(data_dict.keys())
+            
+        # 3. 헤더 순서대로 값을 정렬 (헤더에 없는 값은 무시, 데이터 없는 헤더는 빈칸)
+        row_to_add = []
+        for col_name in headers:
+            row_to_add.append(str(data_dict.get(col_name, "")))
+            
+        # 4. 시트에 추가
+        safe_api_call(ws.append_row, row_to_add)
+        clear_cache()
+        return True
+    except Exception as e:
+        st.error(f"데이터 추가 실패: {e}")
+        return False
+
+def add_data_bulk(sheet_name, data_list):
+    """
+    여러 건 데이터 추가 (수강 배정 등)
+    """
+    if not data_list: return
+    try:
+        client = init_connection()
+        ws = safe_api_call(client.open("Academy_DB").worksheet, sheet_name)
+        headers = safe_api_call(ws.row_values, 1)
+        
+        if not headers:
+            headers = list(data_list[0].keys())
+            safe_api_call(ws.append_row, headers)
+            
+        rows_to_add = []
+        for item in data_list:
+            row = []
+            for col in headers:
+                row.append(str(item.get(col, "")))
+            rows_to_add.append(row)
+            
+        safe_api_call(ws.append_rows, rows_to_add)
+        clear_cache()
+    except Exception as e:
+        st.error(f"일괄 추가 실패: {e}")
+
+def update_data(sheet_name, key_col, key_val, new_data_dict):
+    """
+    데이터 수정 함수: 키값(예: 이름)으로 행을 찾아서 해당 셀만 업데이트
+    """
+    try:
+        client = init_connection()
+        ws = safe_api_call(client.open("Academy_DB").worksheet, sheet_name)
+        
+        # 1. 전체 데이터 가져와서 DataFrame으로 변환 (위치 찾기용)
+        data = safe_api_call(ws.get_all_records)
+        df = pd.DataFrame(data)
+        
+        # 2. 수정할 행(Index) 찾기
+        # 데이터프레임 인덱스 찾기
+        target_indices = df[df[key_col].astype(str) == str(key_val)].index
+        
+        if len(target_indices) == 0:
+            st.error("수정할 데이터를 찾을 수 없습니다.")
+            return False
+            
+        # 구글 시트는 1부터 시작 + 헤더 1줄 = (idx + 2)가 실제 행 번호
+        row_num = target_indices[0] + 2
+        
+        # 3. 헤더 가져오기 (열 번호 찾기용)
+        headers = safe_api_call(ws.row_values, 1)
+        
+        # 4. 수정할 데이터만 업데이트
+        # 배치 업데이트를 위한 셀 목록 생성
+        cells_to_update = []
+        for col_name, new_val in new_data_dict.items():
+            if col_name in headers:
+                col_idx = headers.index(col_name) + 1 # 1부터 시작
+                # update_cell을 쓰면 느리므로, range update 방식을 권장하지만
+                # 여기서는 안전하게 개별 셀 업데이트 사용 (속도 이슈 시 변경 가능)
+                safe_api_call(ws.update_cell, row_num, col_idx, str(new_val))
+                
+        clear_cache()
+        return True
+    except Exception as e:
+        st.error(f"수정 실패: {e}")
+        return False
+
+def delete_data_all(sheet_name, criteria_dict):
+    """
+    데이터 삭제 함수
+    """
+    try:
+        client = init_connection()
+        ws = safe_api_call(client.open("Academy_DB").worksheet, sheet_name)
+        data = safe_api_call(ws.get_all_records)
+        
+        # 삭제할 행 번호들 수집 (역순으로 삭제해야 인덱스 안 꼬임)
+        rows_to_delete = []
+        for i, row in enumerate(data):
+            match = True
+            for k, v in criteria_dict.items():
+                if str(row.get(k)) != str(v):
+                    match = False
+                    break
+            if match:
+                rows_to_delete.append(i + 2) # 헤더 고려
+        
+        if rows_to_delete:
+            for r in sorted(rows_to_delete, reverse=True):
+                safe_api_call(ws.delete_rows, r)
+            clear_cache()
+            return True
+        return False
+    except Exception as e:
+        st.error(f"삭제 실패: {e}")
+        return False
+
+# --- 유틸리티 ---
 def calc_duration_min(s, e):
     try:
         t1 = datetime.strptime(s, "%H:%M")
@@ -142,42 +262,12 @@ def sort_time_strings(time_list):
     try: return sorted(list(set(time_list)), key=lambda x: datetime.strptime(x, "%H:%M"))
     except: return sorted(list(set(time_list)))
 
-# HTML 달력 렌더링
-def render_html_calendar(year, month, attendance_records):
-    cal = calendar.Calendar(firstweekday=6) # 일요일 시작
-    month_days = cal.monthdayscalendar(year, month)
-    
-    html = f"<div style='font-weight:bold; text-align:center; font-size:1.4rem; margin-bottom:15px; color:#333;'>📅 {year}년 {month}월 출석 현황</div>"
-    html += "<table class='cal-table'><thead><tr>"
-    for d in ["일", "월", "화", "수", "목", "금", "토"]:
-        html += f"<th class='cal-th'>{d}</th>"
-    html += "</tr></thead><tbody>"
-    
-    for week in month_days:
-        html += "<tr>"
-        for day in week:
-            if day == 0:
-                html += "<td class='cal-td' style='background-color:#fafafa;'></td>"
-            else:
-                date_str = f"{year}-{month:02d}-{day:02d}"
-                content = f"<span class='cal-day-num'>{day}</span>"
-                if date_str in attendance_records:
-                    recs = attendance_records[date_str]
-                    if not isinstance(recs, list): recs = [recs]
-                    for rec in recs:
-                        status = rec['status']
-                        color = "bg-green"
-                        if "지각" in status: color = "bg-red"
-                        elif "결석" in status: color = "bg-gray"
-                        elif "보강" in status: color = "bg-blue"
-                        short_cls = rec['class_name'][:4] + ".." if len(rec['class_name']) > 4 else rec['class_name']
-                        content += f"<span class='cal-badge {color}'>{status} ({short_cls})</span>"
-                html += f"<td class='cal-td'>{content}</td>"
-        html += "</tr>"
-    html += "</tbody></table>"
-    return html
+def get_col_data(df, col, idx):
+    if col in df.columns: return df[col]
+    elif len(df.columns) > idx: return df.iloc[:, idx]
+    else: return pd.Series([])
 
-# QR 생성
+# QR 관련
 def generate_styled_qr(data, student_name):
     qr = qrcode.QRCode(version=1, box_size=10, border=2)
     qr.add_data(data); qr.make(fit=True)
@@ -208,64 +298,20 @@ def decode_qr(image_input):
         return data if data else None
     except: return None
 
-# --- CRUD Functions ---
-def add_data(sheet, data_dict):
-    client = init_connection()
-    ws = safe_api_call(client.open("Academy_DB").worksheet, sheet)
-    if len(safe_api_call(ws.get_all_values)) == 0: safe_api_call(ws.append_row, list(data_dict.keys()))
-    safe_api_call(ws.append_row, [str(v) for v in data_dict.values()]); clear_cache()
-
-def add_data_bulk(sheet, data_list):
-    if not data_list: return
-    client = init_connection()
-    ws = safe_api_call(client.open("Academy_DB").worksheet, sheet)
-    if len(safe_api_call(ws.get_all_values)) == 0: safe_api_call(ws.append_row, list(data_list[0].keys()))
-    safe_api_call(ws.append_rows, [list(d.values()) for d in data_list]); clear_cache()
-
-def delete_data_all(sheet, target_dict):
-    client = init_connection()
-    ws = safe_api_call(client.open("Academy_DB").worksheet, sheet)
-    data = safe_api_call(ws.get_all_records)
-    rows = []
-    for i, r in enumerate(data):
-        if all(str(r.get(k)) == str(v) for k, v in target_dict.items()): rows.append(i+2)
-    if rows:
-        for r in sorted(rows, reverse=True): safe_api_call(ws.delete_rows, r)
-        clear_cache(); return True
-    return False
-
-def update_data(sheet, t_col, t_val, new_dict):
-    client = init_connection()
-    ws = safe_api_call(client.open("Academy_DB").worksheet, sheet)
-    data = safe_api_call(ws.get_all_records)
-    for i, r in enumerate(data):
-        if str(r.get(t_col)) == str(t_val):
-            rn = i+2; head = safe_api_call(ws.row_values, 1)
-            uv = [new_dict.get(c, r.get(c)) for c in head]
-            safe_api_call(ws.update, f"A{rn}", [uv]); clear_cache(); return True
-    return False
-
-def get_col_data(df, col, idx):
-    if col in df.columns: return df[col]
-    elif len(df.columns) > idx: return df.iloc[:, idx]
-    else: return pd.Series([])
-
 # ==========================================
 # [메뉴] 사이드바 구성
 # ==========================================
 with st.sidebar:
-    # [수정] 학원 이름과 시스템 명칭을 상단에 배치
     st.title("🏫 형설지공 학원")
     st.markdown("# 🎓 통합 ERP 시스템")
     st.markdown("---")
     
-    # 메뉴 스타일 유지 (줄바꿈 방지 등)
     menu = option_menu("메뉴 선택", 
         ["1. 강사 관리", "2. 학생 관리", "3. 반 관리", "4. 수강 배정", 
          "5. 출석 관리", "6. 상담 관리", "7. 강사별 시간표", "8. 강의실별 시간표", 
-         "9. 학생 개인별 종합"], 
+         "9. 학생 개인별 종합", "10. QR 키오스크(출석)"], 
         icons=['person-video3', 'backpack', 'easel', 'journal-check', 
-               'calendar-check', 'chat-dots', 'clock', 'building', 'card-checklist'],
+               'calendar-check', 'chat-dots', 'clock', 'building', 'card-checklist', 'qr-code-scan'],
         menu_icon="cast", default_index=0,
         styles={
             "container": {"padding": "0!important", "background-color": "#f0f2f6"},
@@ -283,30 +329,41 @@ with st.sidebar:
     st.markdown("---")
     st.caption("Developed by 형설지공 2026")
 
-# ==========================================
-# 1. 강사 관리 (안전장치 추가됨)
-# ==========================================
+# ==========================================================
+# 1. 강사 관리
+# ==========================================================
 if menu == "1. 강사 관리":
     st.subheader("👨‍🏫 강사 관리")
     tab1, tab2 = st.tabs(["➕ 신규 등록", "🔧 수정 및 삭제"])
     
+    # [Tab 1] 신규 등록
     with tab1:
         with st.form("teacher_create_form"):
             name = st.text_input("이름")
             subject = st.text_input("담당 과목")
-            phone = st.text_input("연락처")
+            phone = st.text_input("연락처 (010-0000-0000)")
+            email = st.text_input("이메일 (알림 수신용)")
+            
             if st.form_submit_button("등록하기"):
-                if not name: st.error("이름을 입력하세요.")
+                if not name:
+                    st.error("이름을 입력하세요.")
                 else:
-                    add_data('teachers', {'이름': name, '과목': subject, '연락처': phone})
+                    add_data('teachers', {
+                        '이름': name, 
+                        '과목': subject, 
+                        '연락처': phone, 
+                        '이메일': email
+                    })
                     show_center_message(f"{name} 선생님 등록 완료!")
                     st.rerun()
 
+    # [Tab 2] 수정 및 삭제
     with tab2:
         df_t = load_data('teachers')
         if not df_t.empty:
             t_names = get_col_data(df_t, '이름', 0).astype(str)
             t_options = t_names.tolist()
+            
             idx = st.session_state.get('t_modify_idx', 0)
             if idx >= len(t_options): idx = 0
             
@@ -315,17 +372,22 @@ if menu == "1. 강사 관리":
             
             if selected_t:
                 row = df_t[df_t[df_t.columns[0]] == selected_t].iloc[0]
+                
                 st.divider()
                 st.markdown(f"##### 🔧 '{selected_t}' 선생님 정보 수정")
                 
-                # 안전장치를 위해 form 대신 직접 입력 사용
-                n_name = st.text_input("이름", value=row.iloc[0], key="edit_t_n")
-                n_sub = st.text_input("과목", value=row.iloc[1] if len(row)>1 else "", key="edit_t_s")
-                n_ph = st.text_input("연락처", value=row.iloc[2] if len(row)>2 else "", key="edit_t_p")
+                prev_name = row.iloc[0]
+                prev_sub = row.iloc[1] if len(row) > 1 else ""
+                prev_ph = row.iloc[2] if len(row) > 2 else ""
+                prev_email = row.iloc[3] if len(row) > 3 else ""
+
+                n_name = st.text_input("이름", value=prev_name, key="edit_t_n")
+                n_sub = st.text_input("과목", value=prev_sub, key="edit_t_s")
+                n_ph = st.text_input("연락처", value=prev_ph, key="edit_t_p")
+                n_email = st.text_input("이메일", value=prev_email, key="edit_t_e")
                 
                 c1, c2 = st.columns(2)
                 
-                # [수정 안전장치]
                 if c1.button("💾 수정 저장"):
                     st.session_state['confirm_action'] = 'update_teacher'
                 
@@ -333,7 +395,12 @@ if menu == "1. 강사 관리":
                     st.warning(f"⚠️ 정말로 '{selected_t}' 선생님 정보를 수정하시겠습니까?")
                     col_y, col_n = st.columns([1,1])
                     if col_y.button("네, 수정합니다", type="primary"):
-                        update_data('teachers', '이름', selected_t, {'이름': n_name, '과목': n_sub, '연락처': n_ph})
+                        update_data('teachers', '이름', selected_t, {
+                            '이름': n_name, 
+                            '과목': n_sub, 
+                            '연락처': n_ph, 
+                            '이메일': n_email
+                        })
                         st.session_state['confirm_action'] = None
                         show_center_message("수정 완료!")
                         time.sleep(1)
@@ -342,7 +409,6 @@ if menu == "1. 강사 관리":
                         st.session_state['confirm_action'] = None
                         st.rerun()
 
-                # [삭제 안전장치]
                 if c2.button("🗑️ 삭제하기"):
                     st.session_state['confirm_action'] = 'delete_teacher'
                 
@@ -361,21 +427,18 @@ if menu == "1. 강사 관리":
                         st.rerun()
 
 # ==========================================
-# 2. 학생 관리 (신규 등록 시 5칸 데이터 저장 & 정보 자동 갱신)
+# 2. 학생 관리
 # ==========================================
 elif menu == "2. 학생 관리":
     st.subheader("📝 학생 관리")
     t1, t2, t3, t4 = st.tabs(["📋 전체 학생 조회", "➕ 신규 등록", "🔧 수정/삭제", "📱 QR 발급/인쇄"])
     
-    # 데이터 로드
     df_c, df_t, df_s = load_data('classes'), load_data('teachers'), load_data('students')
     all_subjects = sorted(get_col_data(df_t, '과목', 1).unique().tolist()) if not df_t.empty else []
 
-    # [Tab 1] 전체 조회
     with t1:
         st.dataframe(df_s, use_container_width=True)
 
-    # [Tab 2] 신규 등록
     with t2:
         if df_c.empty: st.warning("⚠️ 개설된 반이 없습니다.")
         st.markdown("##### 1️⃣ 기본 정보 입력")
@@ -408,7 +471,6 @@ elif menu == "2. 학생 관리":
                         sel_cls_labels = st.multiselect(f"배정할 반 ({subj})", cls_options, key=f"new_cls_{subj}")
                         for lbl in sel_cls_labels:
                             info = cls_map[lbl]
-                            # [핵심 수정] 5칸 구조에 맞춰서 '과목' 정보를 추가함
                             final_enroll_list.append({
                                 '학생': name,
                                 '과목': subj,
@@ -427,7 +489,6 @@ elif menu == "2. 학생 관리":
                 show_center_message(f"✅ {name} 등록 완료!")
                 time.sleep(1.5); st.rerun()
 
-    # [Tab 3] 수정/삭제
     with t3:
         if not df_s.empty:
             st.markdown("### 🔍 학생 검색 및 수정")
@@ -489,7 +550,6 @@ elif menu == "2. 학생 관리":
                         st.session_state['confirm_action'] = None
                         st.rerun()
 
-    # [Tab 4] QR 발급 및 인쇄
     with t4:
         st.markdown("### 📱 QR 코드 발급 및 인쇄")
         df = load_data('students')
@@ -509,7 +569,7 @@ elif menu == "2. 학생 관리":
                     st.download_button("💾 이미지 다운로드", data=byte_im, file_name=f"형설지공_{s}_QR.png", mime="image/png", type="primary")
 
 # ==========================================
-# 3. 반 관리 (안전장치 추가됨)
+# 3. 반 관리
 # ==========================================
 elif menu == "3. 반 관리":
     st.subheader("📚 반 관리")
@@ -615,7 +675,6 @@ elif menu == "3. 반 관리":
                 st.divider()
                 ub1, ub2 = st.columns(2)
                 
-                # [수정 안전장치]
                 if ub1.button("💾 수정사항 저장", type="primary"):
                     st.session_state['confirm_action'] = 'update_class'
                 
@@ -632,7 +691,6 @@ elif menu == "3. 반 관리":
                         st.session_state['confirm_action'] = None
                         st.rerun()
                 
-                # [삭제 안전장치]
                 if ub2.button("🗑️ 반 삭제"):
                     st.session_state['confirm_action'] = 'delete_class'
                 
@@ -650,18 +708,16 @@ elif menu == "3. 반 관리":
                         st.rerun()
 
 # ==========================================
-# 4. 수강 배정 (5개 항목: 학생/과목/반이름/강사/날짜 저장 Ver)
+# 4. 수강 배정
 # ==========================================
 elif menu == "4. 수강 배정":
     st.subheader("🔗 수강 배정 관리")
     
-    # 데이터 실시간 로드
     df_e = load_data('enrollments')
     df_s = load_data('students')
     df_t = load_data('teachers')
     df_c = load_data('classes')
 
-    # 세션 상태 초기화
     if 'draft_enrolls' not in st.session_state:
         st.session_state.draft_enrolls = []
     if 'confirm_save_cart' not in st.session_state:
@@ -671,25 +727,21 @@ elif menu == "4. 수강 배정":
 
     tab1, tab2 = st.tabs(["📋 전체 수강 현황", "➕ 수강 신청 (장바구니)"])
 
-    # [Tab 1] 전체 현황
     with tab1:
         if df_e.empty:
             st.info("현재 배정된 수강 내역이 없습니다.")
         else:
-            # 5개 컬럼을 모두 보여줍니다.
             try:
                 st.dataframe(df_e[['학생', '과목', '반이름', '담당강사', '날짜']], use_container_width=True)
             except:
                 st.warning("구글 시트 헤더가 [학생, 과목, 반이름, 담당강사, 날짜] 순서인지 확인해주세요.")
 
-    # [Tab 2] 장바구니 방식 배정
     with tab2:
         if df_s.empty or df_t.empty or df_c.empty:
             st.warning("학생, 강사, 반 데이터가 모두 있어야 배정이 가능합니다.")
         else:
             c_left, c_right = st.columns([1, 1.2])
             
-            # --- [왼쪽] 학생 선택 및 수업 담기 ---
             with c_left:
                 st.markdown("### 1️⃣ 학생 선택")
                 df_s['L'] = df_s.iloc[:,0] + " (" + df_s.iloc[:,4] + ")" 
@@ -727,16 +779,13 @@ elif menu == "4. 수강 배정":
                                 if sel_cls_full and sel_cls_full != "(선택하세요)":
                                     real_cls_name = sel_cls_full.split(' (')[0]
                                     if st.button("⬇️ 장바구니에 담기", type="primary"):
-                                        # 중복 체크
                                         is_exist = False
                                         for item in st.session_state.draft_enrolls:
-                                            # 과목까지 같아야 완전 중복으로 처리
                                             if item['학생'] == real_name and item['반이름'] == real_cls_name and item['과목'] == sel_subj:
                                                 is_exist = True
                                         
                                         if not df_e.empty:
                                             try:
-                                                # DB 중복 체크 (학생, 과목, 반이름 일치 여부)
                                                 already = df_e[
                                                     (df_e.iloc[:,0]==real_name) & 
                                                     (df_e.iloc[:,1]==sel_subj) & 
@@ -757,7 +806,6 @@ elif menu == "4. 수강 배정":
                                             })
                                             st.rerun()
 
-            # --- [오른쪽] 장바구니 확인 및 저장 ---
             with c_right:
                 st.markdown(f"### 🛒 수강 신청 목록 ({len(st.session_state.draft_enrolls)}건)")
                 
@@ -765,7 +813,6 @@ elif menu == "4. 수강 배정":
                     for i, item in enumerate(st.session_state.draft_enrolls):
                         with st.container():
                             cc1, cc2 = st.columns([4, 1])
-                            # 화면 표시: [과목] 반이름
                             cc1.markdown(f"**{item['학생']}** - :blue[[{item['과목']}]] {item['반이름']} ({item['담당강사']})")
                             if cc2.button("삭제", key=f"draft_del_{i}"):
                                 del st.session_state.draft_enrolls[i]
@@ -782,8 +829,6 @@ elif menu == "4. 수강 배정":
                         col_y, col_n = st.columns([1, 1])
                         
                         if col_y.button("네, 저장합니다", type="primary", use_container_width=True):
-                            # [핵심] 이제 '과목'을 포함해서 5개 항목을 저장합니다.
-                            # 순서: 학생, 과목, 반이름, 담당강사, 날짜
                             add_data_bulk('enrollments', st.session_state.draft_enrolls)
                             st.session_state.draft_enrolls = []
                             st.session_state.confirm_save_cart = False
@@ -796,7 +841,6 @@ elif menu == "4. 수강 배정":
                 else:
                     st.info("왼쪽에서 수업을 선택하고 '담기'를 눌러주세요.")
 
-                # [참고] 기존 수강 내역
                 if sel_student_label:
                     st.markdown("---")
                     st.markdown("#### 📋 현재 수강 중인 수업")
@@ -804,12 +848,9 @@ elif menu == "4. 수강 배정":
                     
                     if not df_e.empty:
                         try:
-                            # 학생 이름 필터링 (0번 컬럼)
                             curr_list = df_e[df_e.iloc[:,0] == real_name_curr]
                             if not curr_list.empty:
                                 for idx, row in curr_list.iterrows():
-                                    # [중요] 컬럼 인덱스 변경됨
-                                    # 0:학생, 1:과목, 2:반이름, 3:담당강사, 4:날짜
                                     subj_val = row.iloc[1]
                                     cls_val = row.iloc[2]
                                     tea_val = row.iloc[3]
@@ -827,7 +868,6 @@ elif menu == "4. 수강 배정":
                                             st.markdown("**:red[삭제?]**")
                                             y_col, n_col = st.columns(2)
                                             if y_col.button("네", key=f"yes_{unique_key}"):
-                                                # 삭제 시에도 반이름과 학생 이름으로 매칭
                                                 delete_data_all('enrollments', {'학생': real_name_curr, '반이름': cls_val})
                                                 st.session_state.confirm_cancel_target = None
                                                 show_center_message("수강 취소 완료!")
@@ -842,7 +882,7 @@ elif menu == "4. 수강 배정":
                         st.caption("현재 수강 중인 수업이 없습니다.")
 
 # ==========================================
-# 5. 출석 체크 (Full Code 유지)
+# 5. 출석 체크
 # ==========================================
 elif menu == "5. 출석 체크":
     st.subheader("✅ 수동 출석 체크")
@@ -863,7 +903,7 @@ elif menu == "5. 출석 체크":
                 show_center_message("출석 저장 완료!")
 
 # ==========================================
-# 6. 데이터 통합 조회 (Full Code 유지)
+# 6. 데이터 통합 조회
 # ==========================================
 elif menu == "6. 데이터 통합 조회":
     st.subheader("📊 데이터 통합 조회")
@@ -875,7 +915,7 @@ elif menu == "6. 데이터 통합 조회":
     tabs[4].dataframe(load_data('attendance'))
 
 # ==========================================
-# 7. 강사별 시간표 (5칸 데이터 구조 반영 수정)
+# 7. 강사별 시간표
 # ==========================================
 elif menu == "7. 강사별 시간표":
     st.subheader("📅 강사별 주간 시간표")
@@ -939,14 +979,13 @@ elif menu == "7. 강사별 시간표":
                                         with sub_cols[si]:
                                             detail_info = []
                                             if not df_e.empty and not df_s.empty:
-                                                # [수정] iloc[:,2]가 '반이름' 입니다. (0:학생, 1:과목, 2:반이름...)
                                                 try:
                                                     target_col_idx = 2
                                                     std_names = df_e[df_e.iloc[:, target_col_idx] == found['name']].iloc[:,0].tolist()
                                                     matched_std = df_s[df_s.iloc[:,0].isin(std_names)]
                                                     for _, r in matched_std.iterrows():
                                                         detail_info.append(f"• {r.iloc[0]} ({r.iloc[3]}, {r.iloc[4]})")
-                                                except: pass # 인덱스 에러 방지
+                                                except: pass
                                             
                                             std_count = len(detail_info)
                                             
@@ -962,7 +1001,7 @@ elif menu == "7. 강사별 시간표":
                                     st.markdown("<div class='empty-card'></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 8. 강의실별 시간표 (5칸 데이터 구조 반영 수정)
+# 8. 강의실별 시간표
 # ==========================================
 elif menu == "8. 강의실별 시간표":
     st.subheader("🏫 강의실 배정 현황")
@@ -1032,7 +1071,6 @@ elif menu == "8. 강의실별 시간표":
                                         with sub_cols[si]:
                                             detail_info = []
                                             if not df_e.empty and not df_s.empty:
-                                                # [수정] iloc[:,2]가 '반이름' 입니다.
                                                 try:
                                                     target_col_idx = 2
                                                     std_names = df_e[df_e.iloc[:, target_col_idx] == found['name']].iloc[:,0].tolist()
@@ -1052,14 +1090,13 @@ elif menu == "8. 강의실별 시간표":
                                     st.markdown("<div class='empty-card'></div>", unsafe_allow_html=True)
 
 # ==========================================
-# 9. 학생 개인별 종합 (한 페이지 통합 & 리얼 달력 뷰)
+# 9. 학생 개인별 종합
 # ==========================================
 elif menu == "9. 학생 개인별 종합":
-    import calendar  # 달력 기능을 위해 추가
+    import calendar 
     
     st.subheader("📊 학생 개인별 종합 기록부")
     
-    # 데이터 로드
     df_s = load_data('students')
     df_e = load_data('enrollments')
     df_a = load_data('attendance')
@@ -1067,7 +1104,6 @@ elif menu == "9. 학생 개인별 종합":
     if df_s.empty:
         st.warning("등록된 학생이 없습니다.")
     else:
-        # 1. 학생 선택
         df_s['L'] = df_s.iloc[:,0] + " (" + df_s.iloc[:,4] + ")"
         s_list = df_s['L'].tolist()
         s_sel = st.selectbox("학생을 선택하세요", s_list)
@@ -1078,7 +1114,6 @@ elif menu == "9. 학생 개인별 종합":
             
             st.divider()
             
-            # 2. 프로필 섹션
             col_p1, col_p2 = st.columns([1, 4])
             with col_p1:
                 qr_img = generate_styled_qr(f"{real_name}", real_name)
@@ -1090,7 +1125,6 @@ elif menu == "9. 학생 개인별 종합":
 
             st.markdown("---")
 
-            # 3. [구역 1] 수강 및 배정 현황
             st.markdown("##### 📘 수강 및 배정 현황")
             if not df_e.empty:
                 try:
@@ -1098,7 +1132,6 @@ elif menu == "9. 학생 개인별 종합":
                     if my_classes.empty:
                         st.info("현재 수강 중인 수업이 없습니다.")
                     else:
-                        # 5칸 구조(학생, 과목, 반이름, 강사, 날짜) -> 필요한 3개만 추출
                         display_df = my_classes.iloc[:, [1, 2, 3]]
                         display_df.columns = ["수강 과목", "수강 반", "담당 선생님"]
                         st.dataframe(display_df, use_container_width=True, hide_index=True)
@@ -1109,9 +1142,6 @@ elif menu == "9. 학생 개인별 종합":
 
             st.divider()
 
-            # 4. [구역 2] 월별 출석 현황 (달력 뷰)
-            
-            # (1) 년/월 선택 네비게이션
             if 'view_year' not in st.session_state:
                 st.session_state.view_year = datetime.today().year
                 st.session_state.view_month = datetime.today().month
@@ -1134,18 +1164,14 @@ elif menu == "9. 학생 개인별 종합":
                         st.session_state.view_year += 1
                     st.rerun()
 
-            # (2) 출석 데이터 매핑
-            att_map = {} # { 날짜(int) : [상태리스트] }
+            att_map = {}
             if not df_a.empty:
                 try:
                     target_ym = f"{st.session_state.view_year}-{st.session_state.view_month:02d}"
-                    # 학생 필터링
                     my_att = df_a[df_a.iloc[:,2] == real_name]
-                    # 해당 월 필터링
                     month_data = my_att[my_att.iloc[:,0].astype(str).str.contains(target_ym)]
                     
                     for _, row in month_data.iterrows():
-                        # 날짜에서 '일(day)'만 추출 (예: 2026-01-19 -> 19)
                         d_str = str(row.iloc[0])
                         day_int = int(d_str.split('-')[2])
                         status = row.iloc[3]
@@ -1154,14 +1180,11 @@ elif menu == "9. 학생 개인별 종합":
                         att_map[day_int].append(status)
                 except: pass
 
-            # (3) 달력 그리기
-            # 요일 헤더
             d_cols = st.columns(7)
             days_ko = ["월", "화", "수", "목", "금", "토", "일"]
             for i, d in enumerate(days_ko):
                 d_cols[i].markdown(f"<div style='text-align:center; color:gray; font-size:0.8rem;'>{d}</div>", unsafe_allow_html=True)
             
-            # 날짜 채우기
             month_cal = calendar.monthcalendar(st.session_state.view_year, st.session_state.view_month)
             
             for week in month_cal:
@@ -1169,12 +1192,9 @@ elif menu == "9. 학생 개인별 종합":
                 for i, day in enumerate(week):
                     with w_cols[i]:
                         if day == 0:
-                            st.write("") # 빈 날짜
+                            st.write("") 
                         else:
-                            # 날짜 표시
                             st.markdown(f"**{day}**")
-                            
-                            # 출석 상태 표시 (도장)
                             if day in att_map:
                                 statuses = att_map[day]
                                 for s in statuses:
@@ -1185,12 +1205,10 @@ elif menu == "9. 학생 개인별 종합":
                                     elif s == '결석':
                                         st.markdown(f"<span style='color:red; font-size:0.8rem;'>🔴 결석</span>", unsafe_allow_html=True)
                             else:
-                                st.markdown("<br>", unsafe_allow_html=True) # 줄맞춤용 빈칸
+                                st.markdown("<br>", unsafe_allow_html=True)
             
-            # (4) 간단 통계 (달력 아래)
             if att_map:
                 st.markdown("---")
-                # 전체 상태 리스트 평탄화
                 all_statuses = [s for sublist in att_map.values() for s in sublist]
                 c1, c2, c3 = st.columns(3)
                 c1.metric("이달의 출석", f"{all_statuses.count('출석')}회")
